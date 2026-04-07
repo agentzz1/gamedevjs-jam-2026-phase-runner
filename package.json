@@ -1,0 +1,18 @@
+{
+  "name": "phase-runner",
+  "version": "1.0.0",
+  "description": "A dimension-shifting action platformer for Gamedev.js Jam 2026",
+  "type": "module",
+  "scripts": {
+    "dev": "npx vite",
+    "build": "npx vite build",
+    "preview": "npx vite preview"
+  },
+  "devDependencies": {
+    "vite": "latest",
+    "terser": "latest"
+  },
+  "dependencies": {
+    "phaser": "^3.87.0"
+  }
+}
