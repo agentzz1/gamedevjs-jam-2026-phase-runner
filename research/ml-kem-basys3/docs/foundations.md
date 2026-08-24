@@ -1,101 +1,177 @@
-# Foundations: literature verification and feasibility check
+# Foundations: feasibility, and where to point the project
 
-Status: interim update from direct verification (2026-08-24), ahead of the
-broader 24-agent Phase 1 workflow (still running — will be reconciled into
-this document when it lands). Every number below was pulled from a primary
-source's actual PDF text (see method note at the end), not from an abstract,
-a search snippet, or a memory of the paper.
+Status: complete — synthesized from (a) this session's direct verification
+pass and (b) a 24-agent literature workflow (7 claim checks, 9 prior-art
+lanes, 8 per-module resource budgets). Full backing detail lives in
+[`literature.md`](./literature.md) (claims + prior art, with citations) and
+[`module-budget.md`](./module-budget.md) (the LUT/FF/BRAM/DSP budget).
+Every number in all three documents is literature-derived — no physical
+FPGA, oscilloscope, or EM probe was used to produce any of it. Scite was
+unavailable all session (expired OAuth token; the user needs to
+re-authorize it via claude.ai connector settings for future sessions) —
+everything here was retrieved via WebSearch/WebFetch plus direct PDF
+reads instead, which turned out to work well once TCHES's `article/view/`
+block was routed around via its `article/download/` path (see the method
+note in `literature.md`).
 
-## Decisive finding: a complete, first-order side-channel-protected ML-KEM does not fit an XC7A35T
+## The headline finding: a real Basys-3, real-hardware negative result already exists
 
-This is the finding that should drive the project's direction, ahead of any
-novelty question:
+Before any question of designing something new: **someone has already
+built and physically measured a side-channel countermeasure on this
+project's exact board and chip**, and it failed.
 
-| Design | Scope | LUTs | Device | Source |
-|---|---|---:|---|---|
-| HOPE-MLKEM, first-order | complete: KeyGen+Encaps+Decaps, configurable | **43,473** | XC7A200T | Table 4, Camacho-Ruiz et al. 2026 |
-| HOPE-MLKEM, high-order | complete, configurable | **67,757** | XC7A200T | Table 4, Camacho-Ruiz et al. 2026 |
-| HOPE-MLKEM, unprotected (NBU=1) | complete, configurable | 14,436 | XC7A200T | Table 4, Camacho-Ruiz et al. 2026 |
-| Buschkowski et al., first-order, leanest ("A") | **decapsulation only** | **19,400** | XC7A-200 | Table 3, Buschkowski et al. 2026 |
-| Buschkowski et al., first-order, other variants | decapsulation only | 19,400–33,200 | XC7A-200 | Table 3, Buschkowski et al. 2026 |
-| [JGCS24] (Jati et al.), "partially first-order" | partial protection, specific components only | 7,151 | Artix-7 | Table 4 (HOPE-MLKEM's own citation); cross-confirmed independently |
-| **Basys 3 / XC7A35T total budget** | — | **20,800** | — | Digilent/Xilinx datasheet |
+Carrera Rodriguez, Valea, Bruguier & Benoit, "Hardware Implementation and
+Security Analysis of Local-Masked NTT for CRYSTALS-Kyber" (IACR ePrint
+2024/1194 — preprint, not confirmed peer-reviewed) implement a
+twiddle-factor-randomization countermeasure for Kyber's NTT and measure it
+on **a Digilent Basys-3 with a Xilinx Artix-7 XC7A35TCPG236 — the literal
+board and die this project targets** — using a Tektronix MSO64
+oscilloscope and a Langer EM probe. Their countermeasure **fails
+non-specific t-tests (|t| > 4.5) at both its cheapest (u=1, 20k traces) and
+most-obfuscated (u=128, up to 1M traces) settings**, due to a documented
+zero-value leakage and a non-surjective-mapping leakage they identify
+analytically and then confirm empirically. Their own conclusion: this class
+of countermeasure needs to be paired with real additive masking, not used
+as a substitute for it — which they did not themselves build.
 
-The Basys 3's entire LUT budget (20,800) is smaller than HOPE-MLKEM's
-first-order design by more than 2x, and smaller than its high-order design
-by more than 3x — and that's on the XC7A200T, which has roughly 6x the
-Basys 3's LUT count. Buschkowski et al.'s leanest first-order design covers
-*decapsulation alone* and already exceeds the Basys 3's whole budget by
-itself, before KeyGen, Encaps, Keccak/SHAKE, a controller, or an RNG.
+This is a better attack-then-fix anchor than anything else surfaced: it's
+not "same chip family," it's the same board. Reproducing their negative
+result and then designing and validating the additive-masking fix they
+themselves call for (and didn't build) is a concrete, scoped, achievable
+project — more so than a from-scratch novel architecture. (One thing to
+verify directly before building on it: their synthesis baseline figures
+are reported for an XC7A100T-3, while the physical TVLA measurement ran on
+the Basys-3's XC7A35T — worth confirming exactly which configuration maps
+to which device before citing specific numbers. See `literature.md`.)
 
-**Conclusion: fitting a complete, first-order-or-higher masked ML-KEM
-(KeyGen+Encaps+Decaps) inside the Basys 3's LUT budget is not achievable
-with current published masking techniques — this is a hard resource-count
-wall, not a competitive/novelty concern.** The earlier module-by-module
-budget estimate (~14.5k–29.5k LUT total, first-order) undershoots what the
-two most relevant real designs actually needed once fully built and
-measured; it was a reasonable bottom-up estimate from smaller building
-blocks, but the top-down published numbers are what should govern the
-project's scope from here.
+## The area question, revised
 
-### Recommendation
+The earlier interim version of this document said a complete first-order
+masked ML-KEM "categorically" doesn't fit the Basys 3 — a real constraint,
+but stated more starkly than the fuller evidence now supports. The full
+picture is more specific and more useful:
 
-Do not target "smaller than HOPE-MLKEM, still fully protected, still
-complete." Narrow the project to a **specific masked primitive studied
-under the resource-sharing a XC7A35T forces**, rather than a complete KEM:　
-the masked FO-transform comparison is the standard documented weak point in
-ML-KEM decapsulation (see Open follow-ups below — the specific paper on
-this has not been read yet). Every design found so far targets XC7A200T,
-Kintex-7, or Spartan-6 — none targets anything as small as the Basys 3.
-"What changes about a known leakage class when the design is forced onto a
-chip 6x smaller than anyone has used for it" is a claim that (a) actually
-fits the LUT budget, since it's one component, not a full KEM, and (b) is
-still a real, defensible gap, since nobody has published at this device
-scale. This is also a better fit for a solo project running evenings/
-weekends alongside a full-time job: it needs careful measurement craft on a
-narrow, well-defined target rather than a from-scratch full-KEM masked
-architecture.
+**It is not that masking is uniformly ~2-3x too expensive. It's that one
+specific sub-block — masked Keccak/SHAKE — dominates the cost, by a wide
+and now twice-confirmed margin, while the arithmetic (NTT/butterfly) side
+is comparatively cheap to mask and still has real optimization headroom.**
 
-## Verified claims
+- HOPE-MLKEM's own numbers (read directly, Table 4): first-order masking
+  the whole design costs +27,174 LUT over the matched unmasked baseline.
+  Of that, **+16,293 LUT — roughly 60% — is the masked Keccak module
+  alone** (their own reported Keccak-TI3 figure). High-order Keccak
+  (Keccak-DOM) is +27,035 LUT **by itself**, which already exceeds the
+  entire XC7A35T budget before counting anything else.
+- Independently, Land, Marotzke, Richter-Brockmann & Güneysu's
+  glitch-extended-verified masked NTRU Prime decapsulation (TCHES 2024,
+  same Artix-7 family) reports its symmetric hash (SHA-512, serving the
+  same FO-confirmation role Keccak serves in ML-KEM) dominates **57-61%**
+  of total LUT/FF at every masking order tested. Two independent designs,
+  two different hash primitives, same ~60% figure. This is a real,
+  convergent structural finding, not an artifact of one paper's choices.
+- The NTT/butterfly side is comparatively gentle to mask: point-wise
+  multiplication in ML-KEM always multiplies a *public* operand (matrix
+  A-hat, ciphertext) against a *secret-share* operand, never secret×secret
+  — so it needs no ISW/DOM-style secure-multiplication gadget in
+  principle. And per-claim-7's correction below, active 2024-2026 work is
+  still finding real gains here (a modular multiplier down from
+  ~90 LUT+1 DSP to 49 LUT+1 DSP; 28-76% area reductions in recent papers) —
+  contrary to the original "butterfly optimization is exhausted" framing.
+- A genuine counterpoint worth holding onto: Beckwith, Abdulgadir &
+  Azarderakhsh's shared Kyber+Dilithium accelerator masks Kyber-512
+  decapsulation in **~18,000 LUT** on Artix-7 (2.5x over their own
+  unmasked baseline) — which would very nearly fit the Basys 3's entire
+  budget by itself, for decap alone. The likely explanation, not fully
+  confirmed: their hash/sampling unit isn't masked to the same
+  glitch-extended-verified rigor HOPE-MLKEM and Land et al. apply — its
+  own text describes needing "fresh PRNG randomness to refresh shares"
+  without a stated non-completeness proof. If true, this is itself a
+  finding: there's a real, uncharacterized gap between "labeled first-order
+  masked" and "formally glitch-extended-verified first-order masked," and
+  that gap is worth roughly 10,000+ LUT — which is a research question in
+  its own right, not just a nuisance in the literature.
+- Summing the 8 module-budget estimates at their *central* (not most
+  pessimistic) first-order values lands around ~25,000-26,000 LUT — about
+  1.2-1.3x the XC7A35T's budget, not the ~2.1x a naive HOPE-MLKEM
+  whole-design comparison suggests. Full breakdown and the reasoning
+  behind each module's number is in `module-budget.md`.
 
-| # | Claim | Verdict | Detail |
-|---|---|---|---|
-| 1 | HOPE-MLKEM exists: first fully configurable, open, full-hardware ML-KEM implementation with integrated high-order timing/power side-channel protection, evaluated on FPGA and ASIC | **Confirmed** | Camacho-Ruiz, E., Navarro-Torrero, P., & Cabrera Aldaya, A. (2026). "A Framework for designing High-Order Side-Channel Protected Hardware Implementations of ML-KEM." *IACR TCHES*, 2026(2), 272–295. |
-| 2 | A June-2026 paper shows FPGA parallelization undermines higher-order masked ML-KEM verification, enabling key-material classification with reported ~97.9%/98.5% accuracy at 4/6 shares | **Partially confirmed** | Ranney, D., Makaram, Y. I., Ding, A. A., & Fei, Y. "Exploring Side-Channel Protections in Hardware Implementations of PQC ML-KEM Verification." arXiv:2606.31681 (submitted 2026-06-30). Confirmed real, confirmed the qualitative conclusion ("parallelized processing on FPGAs introduces sufficient first-order leakage for full secret-key recovery" even for higher-order masked designs). The specific 97.9%/98.5% figures were **not** independently verified — only the abstract was read; the full PDF would be needed to confirm exact numbers. |
-| 3 | A second active 2026 group (Bochum + collaborators) extended a Boolean-masking framework (HADES, CHES 2025) to arithmetic masking for ML-KEM, motivated by area overhead, with real side-channel measurements on a first-order masked decapsulation | **Confirmed, with corrections** | Buschkowski, F., Höher, N., Sasdrich, P., & Güneysu, T. "A Billion Hard CRYSTALS: Exploring Practical Aspects of Arithmetic Masking for PQC in Hardware." IACR ePrint 2026/1265 (received 2026-06-16). All four authors are Ruhr University Bochum; Güneysu's second affiliation in the paper is the German Research Center for Artificial Intelligence (DFKI) — **not NXP** as stated in the original claim, worth double-checking your source on that detail. Original HADES: Buschkowski, Land, Höher, Richter-Brockmann, Sasdrich, Güneysu, "HADES: Automated Hardware Design Exploration for Cryptographic Primitives," eprint 2024/130 / TCHES (CHES 2025). The real measurements (500,000-trace first-order t-test, TVLA thresholds ±4.5/±6.5, fixed-vs-random-secret-key methodology) ran on a **Kintex-7 (SAKURA-X board)** for the full decapsulation and a **Spartan-6 (SAKURA-G board)** for an isolated B2A/A2B masking-conversion template — **not Artix-7/Basys-3**. |
-| 4 | Prior compact unprotected Kyber/ML-KEM designs achieve ~7,400 LUTs | **Confirmed (range holds)** | Multiple real designs cluster in this range: HOPE-MLKEM's own unmasked "new" variants run 7.6k–8.9k LUT; [JGCS24]/Jati et al. unprotected/partial baseline is 7,151 LUT. |
-| 5 | An XC7A35T-specific compact design at ~7,100–7,600 LUT, ~5,700 FF, 3 BRAM, 4 DSP, ~169 MHz | **Contradicted (conflated composite)** | Independently re-confirmed via HOPE-MLKEM's own citation table: the real [JGCS24]/Jati et al. numbers are 7,151 LUT (matches), but 3,730 FF (not ~5,700), 5.5 BRAM (not 3), 2 DSP (not 4), 258 MHz (not ~169 MHz). Two independent lookups (this session's direct research, and the separately-run Phase 1 workflow) reached the same contradiction from different source pairs. |
-| 6 | Older full masking approaches reported at >150,000 LUTs | Not yet independently re-checked in this pass | Plausible given older Boolean-masked designs' overhead, but no specific source pinned down yet in this session. |
-| 7 | A 2025 complete ML-KEM architecture for Artix-7 (all 3 security levels, KeyGen+Encaps+Decaps, ~12,037 LUT / 6,895 FF / 4 DSP / 9 BRAM) | Not re-checked in this pass (was in the broader Phase 1 workflow's scope) | — |
-| 8 | Further Kyber/ML-KEM area reductions must be sought outside the NTT butterfly unit | Not re-checked in this pass | — |
+**Revised bottom line:** a complete, formally-rigorous, first-order masked
+ML-KEM is still probably out of reach on this device without either a
+real architectural win on masked-Keccak specifically, or a deliberate
+scope cut (fewer parameter sets resident at once, a weaker-but-explicitly-
+characterized masking rigor, or masking fewer of the leakage-critical
+points and formally justifying which ones can stay unmasked — the
+partial-NTT-masking layer-ablation result in `literature.md` is a real
+example of that last approach done rigorously). The gap to close is
+roughly 1.2-1.5x on LUTs with a lean design, not 2-3x. That's a
+meaningfully different, more encouraging engineering target than the
+interim version of this document stated.
 
-Claims 6–8 were in the original 24-agent Phase 1 workflow's scope; this
-document will be updated with its findings once it completes.
+## What this suggests for scope
 
-## Open follow-ups
+Two concrete, complementary angles, both better-fitted to a solo
+evenings/weekends project than "build a smaller HOPE-MLKEM":
 
-- Read eprint 2024/060, "The Insecurity of Masked Comparisons: SCAs on
-  ML-KEM's FO-Transform" — found via search, not yet read. Likely directly
-  relevant to the narrowed "masked FO-comparison under resource sharing"
-  angle above.
-- Confirm the exact 97.9%/98.5% classification-accuracy figures from the
-  Ranney et al. paper by reading the full PDF (same method as used for
-  HOPE-MLKEM and Buschkowski et al. below — should work the same way).
-- Equipment access for real power/EM measurement (oscilloscope, EM probe,
-  TVLA setup) — e.g. via ITIV or Fraunhofer IOSB — is an open question or
-  the user to pursue; can research what's publicly documented about their
-  side-channel lab capabilities if useful, but actual access isn't
-  something resolvable from this sandbox.
+1. **Reproduce-and-fix the Carrera Rodriguez et al. Basys-3 result.**
+   Concrete, bounded, already has real measured baseline data to compare
+   against, and targets a real documented gap (they say a fix needs real
+   additive masking; they didn't build one).
+2. **Masked-Keccak-under-resource-sharing specifically** — since that's
+   the confirmed dominant cost driver (~60%, two independent sources) and
+   HOPE-MLKEM's own authors list "developing optimized modules for
+   protected Keccak implementations" as explicit open future work. This
+   connects naturally to the FO-transform/comparison leakage class (Ranney
+   et al. 2026, building on Hermelink et al.'s CCS 2024 break of masked
+   comparisons) since that's a Keccak-based sub-circuit specifically, cheap
+   to instantiate and study in isolation rather than needing a whole KEM.
 
-## Method note
+Neither requires beating HOPE-MLKEM's or Buschkowski et al.'s whole-system
+numbers, which the evidence above says isn't achievable with current
+techniques on this device. Both are genuinely unoccupied: nobody in the
+retrieved literature targets anything as small as the XC7A35T except
+Carrera Rodriguez et al. (twiddle-randomization only, not masking, and
+found to fail) and Jati et al. (hiding-only, no leakage validation at all).
 
-TCHES's article-view PDF link (`.../article/view/{id}/{galley}`) returns an
-HTML interstitial and blocks automated fetching — the same wall the user
-hit independently. The actual PDF is served from the `.../article/download/
-{id}/{galley}/{file}` path instead, which is not blocked; the download link
-itself is embedded in the interstitial HTML. `poppler-utils` (`pdftotext
--layout`) was installed in this sandbox to extract text from the downloaded
-PDFs directly, since the WebFetch tool's HTML-conversion path could not
-parse either PDF's binary content correctly. All figures above are quoted
-directly from the extracted text of the papers' own tables, not from
-abstracts or search-result summaries.
+## Corrected / newly confirmed since the interim update
+
+- **The June-2026 FPGA-parallelism-defeats-masking attack is now fully
+  confirmed with exact figures**, not just qualitatively: Ranney, Makaram,
+  Ding & Fei (arXiv:2606.31681) report 97.9% classification accuracy at
+  4 shares (14,353 LUT) and 98.5% at 6 shares (18,565 LUT), both on a
+  **Spartan-6** (not Artix-7). The masking scheme they attack traces to
+  Bhasin et al. (TCHES 2021) and was first broken in software by
+  Hermelink et al., "The Insecurity of Masked Comparisons: SCAs on
+  ML-KEM's FO-Transform" (ACM CCS 2024) — this answers the earlier open
+  follow-up about reading that paper.
+- **"Further area reductions must come from outside the butterfly" is
+  contradicted, not confirmed.** Multiple 2024-2026 papers report
+  continuing, non-marginal gains inside the NTT/butterfly/modular-multiply
+  itself (see `literature.md`, claim 7). Don't carry the original framing
+  into any related-work section.
+- **The >150,000-LUT masking figure is real but not representative**:
+  it's Kamucheka et al.'s Kyber-512 design on Virtex-7, and masking itself
+  is only ~6% of that size — the bulk is an admittedly inefficient
+  unmasked baseline. Beckwith et al.'s ~18k-LUT design (same era, same
+  Artix-7 family) achieves comparable first-order protection at roughly
+  8x less area.
+- **RNG/mask-randomness cost is excluded from every headline number in
+  this literature** — both HOPE-MLKEM and Land et al.'s NTRU Prime paper
+  explicitly say so in their own text. Any LUT total quoted from this
+  literature needs the RNG module (`module-budget.md`, ~150-2,500 LUT,
+  highly dependent on how wide the masked-Keccak core ends up) added on
+  top, every time.
+- **Vivado's default synthesis optimizations can silently break masking
+  even with provably-correct RTL.** Muller, Lammers, Osterheider & Moradi
+  (ePrint 2026/1426) showed register retiming and LUT-combining can
+  recombine shares post-synthesis on a real Kintex-7, confirmed via a
+  100-million-trace TVLA campaign, on a design formally verified secure at
+  the netlist level. Concrete, cheap mitigation for whenever RTL work
+  starts: `-no_lc`, `-global_retiming off`. Worth remembering this is a
+  correctness risk that no area budget protects against by itself.
+
+## Roadmap status
+
+Phase 1 (this document + its two companions) is done. Architecture
+specification is next, and should start from the two scope options above
+rather than a whole-KEM target.
