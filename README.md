@@ -6,11 +6,10 @@ A fast-paced action platformer with a unique dimension-shifting mechanic for the
 
 ## 🎮 Gameplay
 
-- **Dimension Shift Mechanic**: Press Q to toggle between two realities where platforms, enemies, and hazards exist differently
-- **Fluid Controls**: Tight, responsive platforming with coyote time and jump buffering
-- **Procedural Levels**: Each playthrough generates unique level layouts
-- **Progressive Difficulty**: Increasing challenges as you advance
-- **Score System**: Collect gems, defeat enemies, and complete levels quickly for high scores
+- **Dimension Shift**: Press Q (or tap the SHIFT button) to toggle between two realities. Some platforms, enemies and spikes exist in only one of them. Shifting has a 3 s cooldown.
+- **One hand-built level**: Run, jump and shift your way to the portal at the end.
+- **Score System**: Gem +100, stomp an enemy +200, reach the portal +500. Your high score is saved.
+- **3 lives**: Enemies and spikes cost health; health pickups restore it.
 
 ## 🏆 Challenges Targeted
 
@@ -20,43 +19,83 @@ A fast-paced action platformer with a unique dimension-shifting mechanic for the
 ## 🛠️ Technical Features
 
 - **Procedural Audio**: All sound effects and music generated using Web Audio API (no audio files)
-- **Programmatic Graphics**: All sprites and textures generated on canvas (no image assets)
-- **Particle System**: Extensive visual effects including screen shake, dimension shift effects, and more
-- **Mobile Ready**: Touch controls support
-- **Responsive Design**: Works on various screen sizes
+- **Programmatic Graphics**: All in-game sprites and textures generated on canvas (no image assets in the game; only the Home Screen / tab icons are PNGs)
+- **Visual Effects**: Particles, screen shake and a flash on every dimension shift
+- **Mobile Ready**: on-screen multi-touch controls, landscape layout that respects the iPhone notch and home indicator
+- **Installable**: add it to your Home Screen to play full screen
 
 ## 🚀 How to Play
 
 ### Desktop Controls:
-- **Arrow Keys / WASD**: Move and jump
+- **Arrow keys / WASD**: Move
+- **Up / W / Space**: Jump
 - **Q**: Dimension Shift
-- **P / ESC**: Pause
+- **P / Esc**: Pause
 
-### Mobile:
-- Touch controls appear on screen
+The menu says *Press SPACE or Click to Start*.
+
+### Mobile (iPhone / Android):
+- Play in **landscape**. In portrait the game shows *Rotate your phone to landscape*. If the screen does not turn: *Won't rotate? Turn off Portrait Orientation Lock in Control Center.*
+- *Tap to Start* on the menu.
+- **Left thumb:** the ◀ ▶ buttons move.
+- **Right thumb:** **JUMP** (hold to keep hopping) and **SHIFT** (tap; the 3 s cooldown is shown as an orange sweep).
+- The **❚❚** button (top right) pauses. *Tap anywhere to resume.*
+- Leaving the app, locking the phone or rotating to portrait pauses the game automatically.
+
+**Full screen (recommended):**
+- **iPhone Safari:** tap **Share** (on iOS 26: **•••** → **Share**) → **Add to Home Screen**, then start Phase Runner from its icon. The menu reminds you: *Tip: Share → Add to Home Screen for full screen*.
+- **Android Chrome:** **⋮** → **Add to Home screen** / **Install app**.
+
+**No sound on iPhone?** The Ring/Silent switch mutes web audio, so switch it to Ring. Sound starts with your first tap.
+
+High scores are stored per browser: Safari and the Home Screen app keep separate scores.
 
 ## 📁 Project Structure
 
 ```
+index.html                # Page shell: safe-area layout CSS, rotate-to-landscape overlay, home-screen tags
+public/
+├── manifest.webmanifest  # Web app manifest (Add to Home Screen / Install app)
+└── icons/                # Home-screen icons and favicon (made by scripts/make-icons.cjs)
+scripts/
+└── make-icons.cjs        # One-off icon generator (output is committed; not run in CI)
 src/
-├── entities/         # Game entities (Player, Enemy)
-├── scenes/           # Phaser scenes (Boot, Menu, Game, UI, GameOver)
-├── systems/          # Game systems (Audio, Effects, Level Generation)
-└── main.js           # Game entry point
+├── main.js               # Game config and boot
+├── scenes/               # Phaser scenes (Boot, Menu, Game, UI, GameOver)
+├── ui/
+│   └── TouchControls.js  # On-screen multi-touch controls (d-pad, JUMP, SHIFT)
+├── systems/
+│   ├── AudioSystem.js    # Sound effects and music synthesized with Web Audio
+│   ├── platform.js       # iOS / Home Screen detection for the install tip
+│   ├── EffectSystem.js   # Experimental, not wired in
+│   └── LevelGenerator.js # Experimental, not wired in
+└── entities/             # Experimental (Player, Enemy, EnemyFactory), not wired in
 ```
 
 ## 🔧 Development
 
 ```bash
 # Install dependencies
-npm install
+npm ci
 
-# Run development server
+# Run development server (http://localhost:8080)
 npm run dev
 
-# Build for production
+# Test on a phone over Wi-Fi: open the "Network" URL it prints
+npm run dev -- --host
+
+# Build for production (output in dist/)
 npm run build
 ```
+
+### Deploy
+
+Pushing to `master` runs GitHub Actions (`.github/workflows/deploy.yml`), which builds the game and publishes `dist/` to GitHub Pages. Pull requests to `master` are built and checked but not deployed.
+
+First release (manual steps):
+1. Repository owner: **Settings → Pages → Source: GitHub Actions**.
+2. Merge PR #1 (`claude/new-session-keu35y` → `master`). Only `master` deploys.
+3. If needed, run the workflow manually on `master` (**Actions → Deploy to GitHub Pages → Run workflow**).
 
 ## 🎯 Jam Submission
 

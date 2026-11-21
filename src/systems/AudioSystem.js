@@ -1,7 +1,18 @@
 export class AudioSystem {
-  constructor(scene) {
-    this.scene = scene;
-    this.audioContext = scene.sys.game.loop.audioContext || new (window.AudioContext || window.webkitAudioContext)();
+  // One AudioSystem (and one AudioContext) per game. Buffers are generated once and reused by every
+  // level / restart. On iOS every extra AudioContext would need its own user-gesture unlock.
+  static get(game) {
+    if (!game.__audioSystem) game.__audioSystem = new AudioSystem(game);
+    return game.__audioSystem;
+  }
+
+  constructor(game) {
+    this.game = game;
+    // Reuse Phaser's WebAudio context: Phaser already unlocks it on the first touchend/mouseup/keydown,
+    // suspends it on window blur, resumes it on focus / when iOS reports 'interrupted', and does the
+    // iOS 17/18 suspend+resume dance on 'visible' (WebAudioSoundManager#onGameVisible, Phaser 3.88+).
+    const sm = game.sound;
+    this.audioContext = (sm && sm.context) || new (window.AudioContext || window.webkitAudioContext)();
     this.buffers = new Map();
     this.musicSource = null;
     this.musicGain = this.audioContext.createGain();
@@ -9,31 +20,35 @@ export class AudioSystem {
     this.musicVolume = 0.3;
     this.musicGain.gain.value = this.musicVolume;
     this.sfxVolume = 0.3;
-    this.reverbNode = null;
     this.delayNode = null;
     this._initEffects();
+    this._installUnlock();
+  }
+
+  // iOS/WebKit: a context only starts inside a touchend/click/keydown handler (touchstart does not count).
+  // Keep these listeners for the whole session: after a phone call, Siri or backgrounding the context
+  // can come back 'suspended'/'interrupted' and the next tap must resume it again.
+  _installUnlock() {
+    const ctx = this.audioContext;
+    const kick = () => {
+      if (ctx.state === 'running' || ctx.state === 'closed') return;
+      const p = ctx.resume();
+      if (p && p.catch) p.catch(() => {});
+      // Older iOS needed a node started inside the gesture; harmless elsewhere.
+      try {
+        const src = ctx.createBufferSource();
+        src.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+        src.connect(ctx.destination);
+        src.start(0);
+      } catch (e) { /* ignore */ }
+    };
+    const opts = { capture: true, passive: true };
+    ['touchend', 'pointerup', 'mouseup', 'click', 'keydown'].forEach((t) => document.addEventListener(t, kick, opts));
   }
 
   _initEffects() {
+    // (The 2 s convolver "reverb" was never fed by any source; removed - it cost 20-185 ms per create.)
     const ctx = this.audioContext;
-    const convolver = ctx.createConvolver();
-    const rate = ctx.sampleRate;
-    const length = rate * 2;
-    const impulse = ctx.createBuffer(2, length, rate);
-    for (let channel = 0; channel < 2; channel++) {
-      const channelData = impulse.getChannelData(channel);
-      for (let i = 0; i < length; i++) {
-        channelData[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 2.5);
-      }
-    }
-    convolver.buffer = impulse;
-    const reverbGain = ctx.createGain();
-    reverbGain.gain.value = 0.2;
-    convolver.connect(reverbGain);
-    reverbGain.connect(ctx.destination);
-    this.reverbNode = convolver;
-    this.reverbGain = reverbGain;
-
     const delay = ctx.createDelay(1.0);
     delay.delayTime.value = 0.15;
     const delayGain = ctx.createGain();
@@ -312,9 +327,9 @@ export class AudioSystem {
   }
 
   _playBuffer(buffer, volume = 1) {
-    if (this.audioContext.state === 'suspended') {
-      this.audioContext.resume();
-    }
+    // Locked/interrupted context: drop the SFX. Sources started on a suspended context are queued and
+    // would all fire at once when the context finally resumes.
+    if (this.audioContext.state !== 'running') return null;
     const source = this.audioContext.createBufferSource();
     source.buffer = buffer;
     const gainNode = this.audioContext.createGain();
@@ -355,11 +370,13 @@ export class AudioSystem {
       this.generateBackgroundMusic();
     }
     this.stopMusic();
+    this.musicPaused = false;
     const buffer = this.buffers.get('backgroundMusic');
     this.musicSource = this.audioContext.createBufferSource();
     this.musicSource.buffer = buffer;
     this.musicSource.loop = true;
     this.musicSource.connect(this.musicGain);
+    this.musicGain.gain.cancelScheduledValues(this.audioContext.currentTime);
     this.musicGain.gain.value = this.musicVolume;
     this.musicSource.start(0);
   }
@@ -372,9 +389,21 @@ export class AudioSystem {
     }
   }
 
+  // Mute/unmute music for the pause menu. Uses the gain node, NOT ctx.suspend(): Phaser's sound manager
+  // resumes a suspended context every frame while the window has focus.
+  pauseMusic() {
+    this.musicPaused = true;
+    this.musicGain.gain.setTargetAtTime(0, this.audioContext.currentTime, 0.03);
+  }
+
+  resumeMusic() {
+    this.musicPaused = false;
+    this.musicGain.gain.setTargetAtTime(this.musicVolume, this.audioContext.currentTime, 0.03);
+  }
+
   setMusicVolume(volume) {
     this.musicVolume = Math.max(0, Math.min(1, volume));
-    if (this.musicGain) {
+    if (this.musicGain && !this.musicPaused) {
       this.musicGain.gain.value = this.musicVolume;
     }
   }
@@ -388,9 +417,6 @@ export class AudioSystem {
     this.buffers.clear();
     if (this.musicGain) {
       this.musicGain.disconnect();
-    }
-    if (this.reverbNode) {
-      this.reverbNode.disconnect();
     }
     if (this.delayNode) {
       this.delayNode.disconnect();

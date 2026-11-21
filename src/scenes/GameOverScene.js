@@ -14,11 +14,20 @@ export default class GameOverScene extends Phaser.Scene {
   }
 
   create() {
-    this.highScore = parseInt(localStorage.getItem('phaseRunnerHighScore') || '0', 10);
+    this.leaving = false;
+    // localStorage can throw (Safari private mode, sandboxed iframes): fall back to a session-only high score.
+    try {
+      this.highScore = parseInt(localStorage.getItem('phaseRunnerHighScore') || '0', 10) || 0;
+    } catch (e) {
+      this.highScore = this.registry.get('sessionHighScore') || 0;
+    }
 
     if (this.score > this.highScore) {
       this.highScore = this.score;
-      localStorage.setItem('phaseRunnerHighScore', this.highScore.toString());
+      this.registry.set('sessionHighScore', this.highScore);
+      try {
+        localStorage.setItem('phaseRunnerHighScore', this.highScore.toString());
+      } catch (e) { /* storage unavailable: keep the session high score */ }
     }
 
     this.createBackground();
@@ -27,6 +36,9 @@ export default class GameOverScene extends Phaser.Scene {
     this.createHighScoreDisplay();
     this.createButtons();
     this.createParticles();
+
+    // The default cursor lives on the shared canvas, not the scene: always hand back a plain one.
+    this.events.once('shutdown', () => this.input.setDefaultCursor('default'));
   }
 
   update(time) {
@@ -137,54 +149,59 @@ export default class GameOverScene extends Phaser.Scene {
     const { width, height } = this.cameras.main;
 
     this.createButton(width / 2, height * 0.62, 'Play Again', () => this.restartGame());
-    this.createButton(width / 2, height * 0.72, 'Main Menu', () => this.goToMenu());
+    this.createButton(width / 2, height * 0.62 + 96, 'Main Menu', () => this.goToMenu());
   }
 
   createButton(x, y, text, callback) {
-    const btnWidth = 220;
-    const btnHeight = 45;
+    const btnWidth = 300;
+    const btnHeight = 76; // 76 game px = 48 CSS px at the smallest iPhone scale (0.633)
 
     const bg = this.add.graphics();
     bg.fillStyle(0x222222, 0.8);
-    bg.fillRoundedRect(x - btnWidth / 2, y - btnHeight / 2, btnWidth, btnHeight, 8);
+    bg.fillRoundedRect(x - btnWidth / 2, y - btnHeight / 2, btnWidth, btnHeight, 10);
     bg.lineStyle(2, 0x444466, 0.8);
-    bg.strokeRoundedRect(x - btnWidth / 2, y - btnHeight / 2, btnWidth, btnHeight, 8);
+    bg.strokeRoundedRect(x - btnWidth / 2, y - btnHeight / 2, btnWidth, btnHeight, 10);
 
     const txt = this.add.text(x, y, text, {
       fontFamily: 'monospace',
-      fontSize: '18px',
+      fontSize: '24px',
       color: '#ffffff',
     }).setOrigin(0.5);
 
     const hitArea = new Phaser.Geom.Rectangle(x - btnWidth / 2, y - btnHeight / 2, btnWidth, btnHeight);
 
     const interactiveBg = this.add.graphics().setInteractive(hitArea, Phaser.Geom.Rectangle.Contains);
-    interactiveBg.setFillStyle(0x000000, 0);
 
+    // While leaving (400 ms fade) hover is ignored, so a hand cursor cannot leak into the next scene.
     interactiveBg.on('pointerover', () => {
+      if (this.leaving) return;
       bg.clear();
       bg.fillStyle(0x333344, 0.9);
-      bg.fillRoundedRect(x - btnWidth / 2, y - btnHeight / 2, btnWidth, btnHeight, 8);
+      bg.fillRoundedRect(x - btnWidth / 2, y - btnHeight / 2, btnWidth, btnHeight, 10);
       bg.lineStyle(2, 0x00ffff, 1);
-      bg.strokeRoundedRect(x - btnWidth / 2, y - btnHeight / 2, btnWidth, btnHeight, 8);
+      bg.strokeRoundedRect(x - btnWidth / 2, y - btnHeight / 2, btnWidth, btnHeight, 10);
       txt.setColor('#00ffff');
       this.input.setDefaultCursor('pointer');
     });
 
     interactiveBg.on('pointerout', () => {
+      if (this.leaving) return;
       bg.clear();
       bg.fillStyle(0x222222, 0.8);
-      bg.fillRoundedRect(x - btnWidth / 2, y - btnHeight / 2, btnWidth, btnHeight, 8);
+      bg.fillRoundedRect(x - btnWidth / 2, y - btnHeight / 2, btnWidth, btnHeight, 10);
       bg.lineStyle(2, 0x444466, 0.8);
-      bg.strokeRoundedRect(x - btnWidth / 2, y - btnHeight / 2, btnWidth, btnHeight, 8);
+      bg.strokeRoundedRect(x - btnWidth / 2, y - btnHeight / 2, btnWidth, btnHeight, 10);
       txt.setColor('#ffffff');
       this.input.setDefaultCursor('default');
     });
 
     interactiveBg.on('pointerdown', () => {
+      if (this.leaving) return;
+      this.leaving = true;
+      this.input.setDefaultCursor('default');
       bg.clear();
       bg.fillStyle(0x444466, 1);
-      bg.fillRoundedRect(x - btnWidth / 2, y - btnHeight / 2, btnWidth, btnHeight, 8);
+      bg.fillRoundedRect(x - btnWidth / 2, y - btnHeight / 2, btnWidth, btnHeight, 10);
       callback();
     });
   }

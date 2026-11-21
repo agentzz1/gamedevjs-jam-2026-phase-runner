@@ -1,4 +1,6 @@
 import Phaser from 'phaser';
+import { isTouchFirst, getSafeRect } from '../ui/TouchControls.js';
+import { showInstallHint } from '../systems/platform.js';
 
 export default class MenuScene extends Phaser.Scene {
   constructor() {
@@ -6,16 +8,24 @@ export default class MenuScene extends Phaser.Scene {
   }
 
   create() {
+    this.starting = false;
+    this.touchUI = isTouchFirst(this.game) || !!this.registry.get('touchUI');
+
     this.createBackground();
     this.createTitle();
     this.createSubtitle();
     this.createStartText();
-    this.createControls();
-    this.createCredits();
+    // The bottom line sits above the home indicator (bottom safe area); the controls panel moves up only as far
+    // as needed to clear it. On desktop (no insets) both keep their original positions.
+    const bottomLine = showInstallHint ? this.createInstallHint() : this.createCredits();
+    this.createControls(bottomLine.y - bottomLine.height / 2 - 6);
     this.createParticles();
 
     this.input.keyboard.once('keydown-SPACE', () => this.startGame());
-    this.input.once('pointerdown', () => this.startGame());
+    this.input.once('pointerdown', (pointer) => {
+      if (pointer.wasTouch) this.registry.set('touchUI', true);
+      this.startGame();
+    });
   }
 
   update(time) {
@@ -93,7 +103,7 @@ export default class MenuScene extends Phaser.Scene {
 
     this.add.text(width / 2, height * 0.35, 'Gamedev.js Jam 2026', {
       fontFamily: 'monospace',
-      fontSize: '20px',
+      fontSize: '22px',
       color: '#8888aa',
     }).setOrigin(0.5);
   }
@@ -101,46 +111,74 @@ export default class MenuScene extends Phaser.Scene {
   createStartText() {
     const { width, height } = this.cameras.main;
 
-    this.startText = this.add.text(width / 2, height * 0.55, 'Press SPACE or Tap to Start', {
+    this.startText = this.add.text(width / 2, height * 0.55, this.touchUI ? 'Tap to Start' : 'Press SPACE or Click to Start', {
       fontFamily: 'monospace',
-      fontSize: '22px',
+      fontSize: '26px',
       color: '#ffffff',
     }).setOrigin(0.5);
   }
 
-  createControls() {
+  createControls(maxBottom) {
     const { width, height } = this.cameras.main;
+    const panelH = 128;
+    const top = Math.min(height * 0.65, maxBottom - panelH);
 
     const panel = this.add.graphics();
     panel.fillStyle(0x000000, 0.5);
-    panel.fillRoundedRect(width / 2 - 180, height * 0.65, 360, 120, 10);
+    panel.fillRoundedRect(width / 2 - 270, top, 540, panelH, 10);
     panel.lineStyle(2, 0x444466, 0.8);
-    panel.strokeRoundedRect(width / 2 - 180, height * 0.65, 360, 120, 10);
+    panel.strokeRoundedRect(width / 2 - 270, top, 540, panelH, 10);
 
-    const controls = [
+    const controls = this.touchUI ? [
+      'Left thumb: arrow buttons - Move',
+      'Right thumb: JUMP / SHIFT buttons',
+      'Top-right pause button - Pause',
+      'Collect gems, avoid enemies, reach the portal!',
+    ] : [
       'Arrow Keys / WASD - Move & Jump',
-      'Q / Shift Button - Dimension Shift',
+      'Q - Dimension Shift',
       'P / Esc - Pause',
       'Collect gems, avoid enemies, reach the portal!',
     ];
 
     controls.forEach((text, i) => {
-      this.add.text(width / 2, height * 0.68 + i * 24, text, {
+      this.add.text(width / 2, top + height * 0.025 + i * 26, text, {
         fontFamily: 'monospace',
-        fontSize: '14px',
+        fontSize: '18px',
         color: '#ccccdd',
       }).setOrigin(0.5);
     });
   }
 
-  createCredits() {
-    const { width, height } = this.cameras.main;
+  // Centre y = the default (height - offset), raised so the text box ends 2 px above the safe-area bottom.
+  placeAboveSafeBottom(text, offset) {
+    const safeBottom = getSafeRect(this.game).bottom;
+    return text.setY(Math.min(this.cameras.main.height - offset, safeBottom - text.height / 2 - 2));
+  }
 
-    this.add.text(width / 2, height - 30, 'Made with Phaser 3 & JavaScript', {
+  createCredits() {
+    const { width } = this.cameras.main;
+
+    const credits = this.add.text(width / 2, 0, 'Made with Phaser 3 & JavaScript', {
       fontFamily: 'monospace',
-      fontSize: '12px',
-      color: '#555577',
+      fontSize: '16px',
+      color: '#777799',
     }).setOrigin(0.5);
+    return this.placeAboveSafeBottom(credits, 24);
+  }
+
+  // iOS Safari only (not when launched from the Home Screen): one passive line in place of the credits.
+  createInstallHint() {
+    const { width } = this.cameras.main;
+
+    const tip = this.add.text(width / 2, 0, 'Tip: Share \u2192 Add to Home Screen for full screen', {
+      fontFamily: 'monospace',
+      fontSize: '20px',
+      color: '#66ffcc',
+      backgroundColor: 'rgba(0,0,0,0.45)',
+      padding: { x: 10, y: 4 },
+    }).setOrigin(0.5).setDepth(10); // above the floating particles
+    return this.placeAboveSafeBottom(tip, 28);
   }
 
   createParticles() {
@@ -159,6 +197,8 @@ export default class MenuScene extends Phaser.Scene {
   }
 
   startGame() {
+    if (this.starting) return;
+    this.starting = true;
     this.cameras.main.fadeOut(500, 0, 0, 0);
     this.time.delayedCall(500, () => {
       this.scene.start('GameScene');
