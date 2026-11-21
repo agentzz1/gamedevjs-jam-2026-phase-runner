@@ -85,7 +85,7 @@ export default class GameOverScene extends Phaser.Scene {
       color: color,
     }).setOrigin(0.5);
 
-    this.titleText.setGlow(15);
+    this.titleText.setShadow(0, 0, color, 15, true, true);
 
     this.tweens.add({
       targets: this.titleText,

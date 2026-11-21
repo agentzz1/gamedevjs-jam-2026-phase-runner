@@ -21,7 +21,7 @@ export default class MenuScene extends Phaser.Scene {
   update(time) {
     if (this.titleText) {
       const glow = 10 + Math.sin(time * 0.003) * 5;
-      this.titleText.setGlow(glow);
+      this.titleText.setShadowBlur(glow);
     }
 
     if (this.startText) {
@@ -75,7 +75,7 @@ export default class MenuScene extends Phaser.Scene {
       color: '#00ffff',
     }).setOrigin(0.5);
 
-    this.titleText.setGlow(10);
+    this.titleText.setShadow(0, 0, '#00ffff', 10, true, true);
 
     this.tweens.add({
       targets: this.titleText,

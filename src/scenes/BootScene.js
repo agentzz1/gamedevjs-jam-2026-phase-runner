@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { AudioSystem } from '../systems/AudioSystem.js';
 
 export default class BootScene extends Phaser.Scene {
   constructor() {

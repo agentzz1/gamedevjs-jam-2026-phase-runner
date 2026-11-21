@@ -2,6 +2,8 @@
 
 A fast-paced action platformer with a unique dimension-shifting mechanic for the Gamedev.js Jam 2026.
 
+**▶ [Play it in your browser](https://agentzz1.github.io/gamedevjs-jam-2026-phase-runner/)**
+
 ## 🎮 Gameplay
 
 - **Dimension Shift Mechanic**: Press Q to toggle between two realities where platforms, enemies, and hazards exist differently
