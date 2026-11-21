@@ -2,12 +2,114 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>Phase Runner - Gamedev.js Jam 2026</title>
-  <link rel="stylesheet" href="public/style.css">
+  <meta name="description" content="A dimension-shifting action platformer made with Phaser 3 for Gamedev.js Jam 2026.">
+  <meta name="theme-color" content="#0a0a1a">
+  <meta name="color-scheme" content="dark">
+  <meta name="format-detection" content="telephone=no">
+
+  <!-- Home-screen web app. Paths starting with / are files in public/; Vite rewrites them to ./ (base './'). -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Phase Runner">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
+
+  <!-- Inline so #game has its final size before src/main.js measures it. No vh units: on iOS 100vh is the
+       large viewport and would hide the bottom of the canvas behind the Safari toolbar. -->
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    /* Pin the document: no scroll, rubber-band, pinch/double-tap zoom, selection or long-press callout. */
+    html, body {
+      position: fixed;
+      inset: 0;
+      overflow: hidden;
+      overscroll-behavior: none;
+      background: #0a0a1a;
+      touch-action: none;
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-text-size-adjust: 100%;
+    }
+
+    /* Game area = screen minus the left/right safe areas (notch side in landscape).
+       No flex centring: Phaser's CENTER_BOTH sets the canvas margins itself. */
+    #game {
+      position: fixed;
+      top: 0;
+      bottom: 0;
+      left: env(safe-area-inset-left, 0px);
+      right: env(safe-area-inset-right, 0px);
+    }
+
+    #game canvas {
+      display: block;
+      touch-action: none;
+    }
+
+    /* Portrait on a phone: cover everything with a rotate prompt (the game pauses itself from JS). */
+    #rotate {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      padding: env(safe-area-inset-top, 0px) 24px env(safe-area-inset-bottom, 0px);
+      background: #0a0a1a;
+      color: #ccccdd;
+      font: 600 18px/1.3 ui-monospace, Menlo, monospace;
+      text-align: center;
+    }
+
+    #rotate .rotate-sub {
+      font-size: 14px;
+      font-weight: 400;
+      color: #8888aa;
+      max-width: 280px;
+    }
+
+    #rotate svg {
+      animation: rotate-hint 2s ease-in-out infinite;
+    }
+
+    @keyframes rotate-hint {
+      0%, 30% { transform: rotate(0deg); }
+      60%, 100% { transform: rotate(-90deg); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      #rotate svg { animation: none; }
+    }
+
+    @media (orientation: portrait) and (pointer: coarse) {
+      #rotate { display: flex; }
+    }
+  </style>
 </head>
 <body>
   <div id="game"></div>
-  <script type="module" src="src/main.js"></script>
+  <div id="rotate" aria-live="polite">
+    <svg width="72" height="72" viewBox="0 0 72 72" aria-hidden="true">
+      <rect x="22" y="8" width="28" height="50" rx="5" fill="none" stroke="#00ffff" stroke-width="3"/>
+      <path d="M14 46 a24 24 0 0 0 30 18" fill="none" stroke="#ff44aa" stroke-width="3"/>
+      <path d="M40 58 l5 6 -7 3" fill="none" stroke="#ff44aa" stroke-width="3"/>
+    </svg>
+    <p>Rotate your phone to landscape</p>
+    <p class="rotate-sub">Won't rotate? Turn off Portrait Orientation Lock in Control Center.</p>
+  </div>
+  <script type="module" src="/src/main.js"></script>
 </body>
 </html>

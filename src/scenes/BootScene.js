@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { AudioSystem } from '../systems/AudioSystem.js';
 
 export default class BootScene extends Phaser.Scene {
   constructor() {
@@ -362,7 +363,7 @@ export default class BootScene extends Phaser.Scene {
 
   generateAudio() {
     // Create AudioSystem instance
-    this.audioSystem = new AudioSystem(this);
+    this.audioSystem = AudioSystem.get(this.game);
     
     // Generate all sounds
     this.audioSystem.generateJumpSound();

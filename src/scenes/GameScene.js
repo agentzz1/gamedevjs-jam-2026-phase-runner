@@ -16,21 +16,26 @@ export default class GameScene extends Phaser.Scene {
     this.audioSystem = null;
   }
 
-  init(data) {
-    if (data.level) this.level = data.level;
-    if (data.score !== undefined) this.score = data.score;
-    if (data.lives !== undefined) this.lives = data.lives;
-    if (data.health !== undefined) this.health = data.health;
+  init(data = {}) {
+    this.level = data.level ?? 1;
+    this.score = data.score ?? 0;
+    this.lives = data.lives ?? 3;
+    this.health = data.health ?? 100;
   }
 
   create() {
     this.isPaused = false;
+    // The scene clock and tween manager keep their paused flag across a restart (only the physics world is rebuilt).
+    this.time.paused = false;
+    this.tweens.resumeAll();
+    this.levelEnding = false;
+    this.levelTime = 0; // advances only while unpaused (moving platforms, portal bob)
     this.dimensionShifted = false;
     this.shiftCooldown = 0;
     this.cameras.main.setBounds(0, 0, 3200, 600);
     this.physics.world.setBounds(0, 0, 3200, 600);
 
-    this.audioSystem = new AudioSystem(this);
+    this.audioSystem = AudioSystem.get(this.game);
     this.audioSystem.playMusic();
 
     this.createBackground();
@@ -58,7 +63,18 @@ export default class GameScene extends Phaser.Scene {
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
     this.cameras.main.fadeIn(500);
 
-    this.events.on('shutdown', () => {
+    // Backgrounding (home swipe, app switcher, lock, call), Control Centre (blur) and pagehide all land on
+    // the pause menu. Nothing auto-resumes: the player taps to continue.
+    const E = Phaser.Core.Events;
+    this.game.events.on(E.HIDDEN, this.autoPause, this);
+    this.game.events.on(E.BLUR, this.autoPause, this);
+    this._onPageHide = () => this.autoPause();
+    window.addEventListener('pagehide', this._onPageHide);
+
+    this.events.once('shutdown', () => {
+      this.game.events.off(E.HIDDEN, this.autoPause, this);
+      this.game.events.off(E.BLUR, this.autoPause, this);
+      window.removeEventListener('pagehide', this._onPageHide);
       this.scene.stop('UIScene');
       this.audioSystem.stopMusic();
     });
@@ -67,11 +83,12 @@ export default class GameScene extends Phaser.Scene {
   update(time, delta) {
     if (this.isPaused) return;
 
-    this.handlePlayerMovement();
+    this.levelTime += delta;
+    this.handlePlayerMovement(delta);
     this.updateEnemies(delta);
-    this.updateMovingPlatforms(time);
+    this.updateMovingPlatforms(this.levelTime);
     this.updateShiftCooldown(delta);
-    this.updatePortal(time);
+    this.updatePortal(this.levelTime);
     this.checkFallDeath();
     this.updateUIScene();
   }
@@ -320,13 +337,14 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
-  handlePlayerMovement() {
+  handlePlayerMovement(delta = 16) {
     const speed = 200;
     const jumpForce = -400;
 
-    const left = this.cursors.left.isDown || this.wasd.A.isDown;
-    const right = this.cursors.right.isDown || this.wasd.D.isDown;
-    const jump = this.cursors.up.isDown || this.wasd.W.isDown || this.cursors.space.isDown;
+    const tc = this.scene.get('UIScene')?.touchControls;
+    const left = this.cursors.left.isDown || this.wasd.A.isDown || !!tc?.left;
+    const right = this.cursors.right.isDown || this.wasd.D.isDown || !!tc?.right;
+    const jump = this.cursors.up.isDown || this.wasd.W.isDown || this.cursors.space.isDown || !!tc?.jump;
 
     if (left) {
       this.player.setVelocityX(-speed);
@@ -340,11 +358,11 @@ export default class GameScene extends Phaser.Scene {
       this.player.setVelocityX(0);
     }
 
-        if (jump && this.player.body.touching.down) {
-          this.player.setVelocityY(jumpForce);
-          this.player.setData('canJump', false);
-          this.audioSystem.play('jump');
-          this.createJumpParticles();
+    if (jump && this.player.body.touching.down) {
+      this.player.setVelocityY(jumpForce);
+      this.player.setData('canJump', false);
+      this.audioSystem.play('jump');
+      this.createJumpParticles();
     }
 
     if (this.player.body.touching.down) {
@@ -352,7 +370,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     if (this.player.getData('invincible')) {
-      const timer = this.player.getData('invincibleTimer') - 16;
+      const timer = this.player.getData('invincibleTimer') - delta; // frame-rate independent (30 Hz in Low Power Mode)
       this.player.setData('invincibleTimer', timer);
       if (timer <= 0) {
         this.player.setData('invincible', false);
@@ -571,7 +589,7 @@ export default class GameScene extends Phaser.Scene {
       });
 
       player.setVelocityY(-300);
-    this.audioSystem.play('collect');
+      this.audioSystem.play('collect');
     } else {
       this.playerHit();
     }
@@ -583,10 +601,10 @@ export default class GameScene extends Phaser.Scene {
   }
 
   playerHit() {
-    if (this.player.getData('invincible')) return;
+    if (this.levelEnding || this.player.getData('invincible')) return;
 
     this.health -= 34;
-    this.audioSystem.play('hurt');
+    this.audioSystem.play('damage');
     this.cameras.main.shake(200, 0.01);
 
     if (this.health <= 0) {
@@ -598,12 +616,15 @@ export default class GameScene extends Phaser.Scene {
   }
 
   playerDeath() {
-    this.lives--;
-      this.audioSystem.play('death');
+    // A second hit during the 1 s game-over delay used to drive lives to -1 ('❤'.repeat(-1) throws).
+    if (this.levelEnding) return;
+    this.lives = Math.max(0, this.lives - 1);
+    this.audioSystem.play('death');
     this.createDeathParticles();
     this.cameras.main.shake(300, 0.02);
 
     if (this.lives <= 0) {
+      this.levelEnding = true;
       this.time.delayedCall(1000, () => {
         this.scene.stop('UIScene');
         this.scene.start('GameOverScene', {
@@ -613,6 +634,9 @@ export default class GameScene extends Phaser.Scene {
       });
     } else {
       this.health = 100;
+      // Covers the 500 ms respawn delay too, so the same spike cannot hit again before the respawn.
+      this.player.setData('invincible', true);
+      this.player.setData('invincibleTimer', 2500);
       this.time.delayedCall(500, () => {
         this.player.setPosition(this.playerSpawn.x, this.playerSpawn.y);
         this.player.setVelocity(0, 0);
@@ -623,7 +647,10 @@ export default class GameScene extends Phaser.Scene {
   }
 
   reachPortal(player, portal) {
-      this.audioSystem.play('win');
+    // The overlap fires on every physics step during the 500 ms fade: score and jingle once only.
+    if (this.levelEnding) return;
+    this.levelEnding = true;
+    this.audioSystem.play('levelComplete');
     this.score += 500;
 
     this.cameras.main.fadeOut(500, 0, 0, 0);
@@ -638,15 +665,31 @@ export default class GameScene extends Phaser.Scene {
   }
 
   togglePause() {
-    this.isPaused = !this.isPaused;
+    this.setPaused(!this.isPaused);
+  }
 
-    if (this.isPaused) {
+  // Single source of truth for pausing. Idempotent. Freezes physics, the scene clock (respawn / game-over /
+  // portal delayedCalls), tweens and the music gain.
+  setPaused(p) {
+    if (p === this.isPaused) return;
+    if (p && this.levelEnding) return;
+    this.isPaused = p;
+    this.time.paused = p;
+    if (p) {
       this.physics.pause();
+      this.tweens.pauseAll();
+      this.audioSystem?.pauseMusic();
       this.scene.get('UIScene')?.events.emit('showPause');
     } else {
       this.physics.resume();
+      this.tweens.resumeAll();
+      this.audioSystem?.resumeMusic();
       this.scene.get('UIScene')?.events.emit('hidePause');
     }
+  }
+
+  autoPause() {
+    if (this.sys.isActive() && !this.isPaused && !this.levelEnding) this.setPaused(true);
   }
 
   updateUIScene() {

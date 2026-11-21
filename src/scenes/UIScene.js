@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import TouchControls, { getSafeRect } from '../ui/TouchControls.js';
 
 export default class UIScene extends Phaser.Scene {
   constructor() {
@@ -32,20 +33,35 @@ export default class UIScene extends Phaser.Scene {
     this.createShiftIndicator();
     this.createPauseButton();
 
-    this.events.on('showPause', () => this.showPauseMenu());
-    this.events.on('hidePause', () => this.hidePauseMenu());
-
-    this.input.keyboard.on('keydown-P', () => {
-      if (!this.isPaused) this.showPauseMenu();
+    // GameScene owns the pause state and emits showPause/hidePause (P / Esc are handled there).
+    // Scene.events survives a scene stop, so these listeners are removed on shutdown or they stack up.
+    this.isPaused = false;
+    this.pauseOverlay = null;
+    const onShow = () => this.showPauseMenu();
+    const onHide = () => this.hidePauseMenu();
+    this.events.on('showPause', onShow);
+    this.events.on('hidePause', onHide);
+    this.events.once('shutdown', () => {
+      this.events.off('showPause', onShow);
+      this.events.off('hidePause', onHide);
+      this.scale.off('resize', this.layoutPauseButton, this);
+      this.hidePauseMenu();
     });
 
-    this.input.keyboard.on('keydown-ESC', () => {
-      if (!this.isPaused) this.showPauseMenu();
+    this.touchControls = new TouchControls(this, {
+      onShift: () => {
+        const gs = this.scene.get('GameScene');
+        if (gs && !gs.isPaused) gs.toggleDimension();
+      },
     });
   }
 
   update() {
     this.updateShiftIndicator();
+    if (this.touchControls) {
+      this.touchControls.cooldown = this.shiftMaxCooldown ? this.shiftCooldown / this.shiftMaxCooldown : 0;
+      this.touchControls.update();
+    }
   }
 
   updateHUD(data) {
@@ -59,7 +75,7 @@ export default class UIScene extends Phaser.Scene {
     if (data.lives !== undefined) {
       this.lives = data.lives;
       if (this.livesText) {
-        this.livesText.setText(`Lives: ${'❤'.repeat(this.lives)}`);
+        this.livesText.setText(`Lives: ${'❤'.repeat(Math.max(0, this.lives))}`);
       }
     }
 
@@ -97,17 +113,17 @@ export default class UIScene extends Phaser.Scene {
   }
 
   createScoreText() {
-    this.scoreText = this.add.text(20, 20, `Score: ${this.score}`, {
+    this.scoreText = this.add.text(24, 20, `Score: ${this.score}`, {
       fontFamily: 'monospace',
-      fontSize: '20px',
+      fontSize: '24px',
       color: '#ffffff',
     }).setScrollFactor(0).setDepth(100);
   }
 
   createLivesText() {
-    this.livesText = this.add.text(20, 50, `Lives: ${'❤'.repeat(this.lives)}`, {
+    this.livesText = this.add.text(24, 54, `Lives: ${'❤'.repeat(Math.max(0, this.lives))}`, {
       fontFamily: 'monospace',
-      fontSize: '18px',
+      fontSize: '22px',
       color: '#ff6666',
     }).setScrollFactor(0).setDepth(100);
   }
@@ -116,7 +132,7 @@ export default class UIScene extends Phaser.Scene {
     const width = this.cameras.main.width;
     this.levelText = this.add.text(width / 2, 20, `Level ${this.level}`, {
       fontFamily: 'monospace',
-      fontSize: '22px',
+      fontSize: '26px',
       color: '#00ffff',
       fontStyle: 'bold',
     }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(100);
@@ -124,10 +140,10 @@ export default class UIScene extends Phaser.Scene {
 
   createHealthBar() {
     const width = this.cameras.main.width;
-    this.healthBarWidth = 120;
-    this.healthBarHeight = 16;
-    this.healthBarX = width - 160;
-    this.healthBarY = 20;
+    this.healthBarWidth = 140;
+    this.healthBarHeight = 18;
+    this.healthBarX = width - 236; // right edge W-96 stays clear of the pause hit circle (starts at W-84)
+    this.healthBarY = 26;
 
     this.healthBar = this.add.graphics().setScrollFactor(0).setDepth(100);
 
@@ -141,30 +157,36 @@ export default class UIScene extends Phaser.Scene {
     this.healthBar.lineStyle(2, 0xffffff, 0.5);
     this.healthBar.strokeRect(this.healthBarX, this.healthBarY, this.healthBarWidth, this.healthBarHeight);
 
-    this.add.text(this.healthBarX + this.healthBarWidth / 2, this.healthBarY - 14, 'HP', {
+    this.add.text(this.healthBarX - 8, this.healthBarY + 9, 'HP', {
       fontFamily: 'monospace',
-      fontSize: '12px',
+      fontSize: '18px',
       color: '#aaaaaa',
-    }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(100);
+    }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(100);
   }
 
   createShiftIndicator() {
     const width = this.cameras.main.width;
-    this.shiftX = width - 50;
-    this.shiftY = 70;
-    this.shiftRadius = 20;
+    this.shiftX = width - 44;
+    this.shiftY = 118;
+    this.shiftRadius = 22;
 
     this.shiftIndicator = this.add.graphics().setScrollFactor(0).setDepth(100);
 
-    this.add.text(this.shiftX, this.shiftY + 30, 'SHIFT', {
+    this.shiftLabel = this.add.text(this.shiftX, this.shiftY + 28, 'SHIFT', {
       fontFamily: 'monospace',
-      fontSize: '10px',
+      fontSize: '18px',
       color: '#aaaaaa',
     }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(100);
   }
 
   updateShiftIndicator() {
     if (!this.shiftIndicator) return;
+
+    // On touch the SHIFT button shows the cooldown sweep itself, so the HUD ring is desktop only.
+    const touchUI = !!this.registry.get('touchUI');
+    this.shiftIndicator.setVisible(!touchUI);
+    this.shiftLabel.setVisible(!touchUI);
+    if (touchUI) return;
 
     this.shiftIndicator.clear();
 
@@ -194,52 +216,57 @@ export default class UIScene extends Phaser.Scene {
   }
 
   createPauseButton() {
-    const width = this.cameras.main.width;
-    const btnX = width - 30;
-    const btnY = 20;
+    const r = 22;
+    const draw = (hover) => {
+      this.pauseBtn.clear();
+      this.pauseBtn.fillStyle(hover ? 0x555555 : 0x333333, hover ? 0.9 : 0.8);
+      this.pauseBtn.fillCircle(0, 0, r);
+      this.pauseBtn.lineStyle(2, 0xffffff, 0.6);
+      this.pauseBtn.strokeCircle(0, 0, r);
+      this.pauseBtn.fillStyle(0xffffff, 1);
+      this.pauseBtn.fillRect(-7, -9, 5, 18);
+      this.pauseBtn.fillRect(2, -9, 5, 18);
+    };
 
-    this.pauseBtn = this.add.graphics().setScrollFactor(0).setDepth(100).setInteractive(new Phaser.Geom.Circle(btnX, btnY, 15), Phaser.Geom.Circle.Contains);
-    this.pauseBtn.fillStyle(0x333333, 0.8);
-    this.pauseBtn.fillCircle(btnX, btnY, 15);
-    this.pauseBtn.fillStyle(0xffffff, 1);
-    this.pauseBtn.fillRect(btnX - 5, btnY - 6, 3, 12);
-    this.pauseBtn.fillRect(btnX + 2, btnY - 6, 3, 12);
+    // Drawn at local (0,0) and positioned from the safe rect; the 40 px hit circle is about 51 CSS px wide on an iPhone.
+    this.pauseBtn = this.add.graphics().setScrollFactor(0).setDepth(100)
+      .setInteractive(new Phaser.Geom.Circle(0, 0, 40), Phaser.Geom.Circle.Contains);
+    draw(false);
+    this.layoutPauseButton();
+    this.scale.on('resize', this.layoutPauseButton, this);
 
     this.pauseBtn.on('pointerdown', () => {
-      const gameScene = this.scene.get('GameScene');
-      if (gameScene) {
-        gameScene.togglePause();
-      }
+      this.scene.get('GameScene')?.setPaused(true);
     });
+    this.pauseBtn.on('pointerover', () => draw(true));
+    this.pauseBtn.on('pointerout', () => draw(false));
+  }
 
-    this.pauseBtn.on('pointerover', () => {
-      this.pauseBtn.clear();
-      this.pauseBtn.fillStyle(0x555555, 0.9);
-      this.pauseBtn.fillCircle(btnX, btnY, 15);
-      this.pauseBtn.fillStyle(0xffffff, 1);
-      this.pauseBtn.fillRect(btnX - 5, btnY - 6, 3, 12);
-      this.pauseBtn.fillRect(btnX + 2, btnY - 6, 3, 12);
-    });
-
-    this.pauseBtn.on('pointerout', () => {
-      this.pauseBtn.clear();
-      this.pauseBtn.fillStyle(0x333333, 0.8);
-      this.pauseBtn.fillCircle(btnX, btnY, 15);
-      this.pauseBtn.fillStyle(0xffffff, 1);
-      this.pauseBtn.fillRect(btnX - 5, btnY - 6, 3, 12);
-      this.pauseBtn.fillRect(btnX + 2, btnY - 6, 3, 12);
-    });
+  layoutPauseButton() {
+    const s = getSafeRect(this.game);
+    this.pauseBtn.setPosition(s.right - 44, s.top + 44);
   }
 
   showPauseMenu() {
+    if (this.pauseOverlay) return; // idempotent
     this.isPaused = true;
-
-    this.pauseOverlay = this.add.graphics().setScrollFactor(0).setDepth(200);
-    this.pauseOverlay.fillStyle(0x000000, 0.7);
-    this.pauseOverlay.fillRect(0, 0, this.cameras.main.width, this.cameras.main.height);
+    this.touchControls?.setEnabled(false);
 
     const width = this.cameras.main.width;
     const height = this.cameras.main.height;
+
+    this.pauseOverlay = this.add.graphics().setScrollFactor(0).setDepth(200);
+    this.pauseOverlay.fillStyle(0x000000, 0.7);
+    this.pauseOverlay.fillRect(0, 0, width, height);
+    // Whole-screen resume target. Resume on pointerup (touchend is a valid WebKit audio-unlock gesture and the
+    // finger is already lifted), and only after a pointerdown on the overlay itself, so the tap that opened
+    // the pause menu cannot resume it.
+    this.pauseOverlay.setInteractive(new Phaser.Geom.Rectangle(0, 0, width, height), Phaser.Geom.Rectangle.Contains);
+    let armed = false;
+    this.pauseOverlay.on('pointerdown', () => { armed = true; });
+    this.pauseOverlay.on('pointerup', () => {
+      if (armed) this.scene.get('GameScene')?.setPaused(false);
+    });
 
     this.pauseText = this.add.text(width / 2, height / 2 - 40, 'PAUSED', {
       fontFamily: 'monospace',
@@ -248,13 +275,14 @@ export default class UIScene extends Phaser.Scene {
       fontStyle: 'bold',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(200);
 
-    this.resumeText = this.add.text(width / 2, height / 2 + 30, 'Press P or ESC to Resume', {
+    const resumeHint = this.registry.get('touchUI') ? 'Tap anywhere to resume' : 'Click or press P / Esc to resume';
+    this.resumeText = this.add.text(width / 2, height / 2 + 30, resumeHint, {
       fontFamily: 'monospace',
-      fontSize: '18px',
+      fontSize: '22px',
       color: '#aaaaaa',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(200);
 
-    this.tweens.add({
+    this.resumeTween = this.tweens.add({
       targets: this.resumeText,
       alpha: 0.4,
       duration: 1000,
@@ -265,6 +293,9 @@ export default class UIScene extends Phaser.Scene {
 
   hidePauseMenu() {
     this.isPaused = false;
+    this.touchControls?.setEnabled(true);
+    this.resumeTween?.remove();
+    this.resumeTween = null;
 
     if (this.pauseOverlay) {
       this.pauseOverlay.destroy();
